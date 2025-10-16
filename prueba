@@ -1,0 +1,478 @@
+# ===============================
+# 📚 SISTEMA DE BIBLIOTECA
+# ===============================
+
+import mysql.connector
+import datetime
+
+# -------------------------------
+# 🔌 CONEXIÓN A BASE DE DATOS
+# -------------------------------
+class ConexionBD:
+    def _init_(self):
+        self.host = "localhost"
+        self.user = "root"
+        self.password = "toor"
+        self.database = "biblioteca"
+        self.conexion = None
+
+    def conectar(self):
+        """Establece conexión con la base de datos"""
+        try:
+            self.conexion = mysql.connector.connect(
+                host=self.host,
+                user=self.user,
+                password=self.password,
+                database=self.database
+            )
+            if self.conexion.is_connected():
+                print("✅ Conexión exitosa a la base de datos")
+                return True
+            else:
+                print("❌ No se pudo conectar a la base de datos")
+                return False
+        except Exception as e:
+            print(f"❌ Error al conectar: {e}")
+            return False
+
+    def desconectar(self):
+        """Cierra la conexión con la base de datos"""
+        if self.conexion and self.conexion.is_connected():
+            self.conexion.close()
+            print("🔌 Conexión cerrada")
+
+    def ejecutar_consulta(self, consulta, parametros=None, fetch=False):
+        """Ejecuta una consulta SQL"""
+        try:
+            if not self.conexion or not self.conexion.is_connected():
+                self.conectar()
+
+            cursor = self.conexion.cursor()
+            cursor.execute(consulta, parametros or ())
+
+            if fetch:
+                resultado = cursor.fetchall()
+                cursor.close()
+                return resultado
+            else:
+                self.conexion.commit()
+                cursor.close()
+                return True
+        except Exception as e:
+            print(f"❌ Error en consulta: {e}")
+            return False
+
+
+# -------------------------------
+# 📖 CLASE LIBRO
+# -------------------------------
+class Libro:
+    def _init_(self, titulo="", autor="", anio=0, disponible=True, id=None):
+        self.__id = id
+        self.__titulo = titulo
+        self.__autor = autor
+        self.__anio = anio
+        self.__disponible = disponible
+
+    @property
+    def id(self): return self.__id
+    @property
+    def titulo(self): return self.__titulo
+    @property
+    def autor(self): return self.__autor
+    @property
+    def anio(self): return self.__anio
+    @property
+    def disponible(self): return self.__disponible
+
+    @titulo.setter
+    def titulo(self, valor):
+        if isinstance(valor, str) and valor.strip():
+            self.__titulo = valor.strip()
+        else:
+            raise ValueError("El título debe ser texto válido")
+
+    @autor.setter
+    def autor(self, valor):
+        if isinstance(valor, str) and valor.strip():
+            self.__autor = valor.strip()
+        else:
+            raise ValueError("El autor debe ser texto válido")
+
+    @anio.setter
+    def anio(self, valor):
+        try:
+            valor = int(valor)
+        except:
+            raise ValueError("El año debe ser un número entero")
+        if 1000 <= valor <= datetime.datetime.now().year:
+            self.__anio = valor
+        else:
+            raise ValueError("Año no válido")
+
+    @disponible.setter
+    def disponible(self, valor):
+        if isinstance(valor, bool):
+            self.__disponible = valor
+        else:
+            raise ValueError("Disponible debe ser True o False")
+
+    def guardar_en_bd(self, conexion):
+        """Guarda o actualiza un libro"""
+        if self.__id is None:
+            consulta = "INSERT INTO libros (titulo, autor, anio, disponible) VALUES (%s, %s, %s, %s)"
+            parametros = (self._titulo, self.autor, self.anio, self._disponible)
+        else:
+            consulta = "UPDATE libros SET titulo=%s, autor=%s, anio=%s, disponible=%s WHERE id=%s"
+            parametros = (self._titulo, self.autor, self.anio, self.disponible, self._id)
+
+        if conexion.ejecutar_consulta(consulta, parametros):
+            return True
+        return False
+
+    def _str_(self):
+        estado = "Disponible" if self.__disponible else "Prestado"
+        return f"ID: {self._id} - '{self.titulo}' por {self.autor} ({self._anio}) - {estado}"
+
+    @classmethod
+    def obtener_por_id(cls, conexion, id_libro):
+        consulta = "SELECT id, titulo, autor, anio, disponible FROM libros WHERE id = %s"
+        resultado = conexion.ejecutar_consulta(consulta, (id_libro,), fetch=True)
+        if resultado:
+            id, titulo, autor, anio, disponible = resultado[0]
+            return cls(titulo, autor, anio, disponible, id)
+        return None
+
+    @classmethod
+    def obtener_todos(cls, conexion):
+        consulta = "SELECT id, titulo, autor, anio, disponible FROM libros"
+        resultados = conexion.ejecutar_consulta(consulta, fetch=True)
+        libros = []
+        if resultados:
+            for r in resultados:
+                id, titulo, autor, anio, disponible = r
+                libros.append(cls(titulo, autor, anio, disponible, id))
+        return libros
+
+
+# -------------------------------
+# 👤 CLASE USUARIO
+# -------------------------------
+class Usuario:
+    def _init_(self, nombre="", tipo="Estudiante", id=None):
+        self.__id = id
+        self.__nombre = nombre
+        self.__tipo = tipo
+
+    @property
+    def id(self): return self.__id
+    @property
+    def nombre(self): return self.__nombre
+    @property
+    def tipo(self): return self.__tipo
+
+    @nombre.setter
+    def nombre(self, valor):
+        if isinstance(valor, str) and valor.strip():
+            self.__nombre = valor.strip()
+        else:
+            raise ValueError("Nombre inválido")
+
+    @tipo.setter
+    def tipo(self, valor):
+        tipos_validos = ["Estudiante", "Profesor", "Administrativo"]
+        if valor in tipos_validos:
+            self.__tipo = valor
+        else:
+            raise ValueError(f"Tipo inválido. Debe ser: {', '.join(tipos_validos)}")
+
+    def guardar_en_bd(self, conexion):
+        if self.__id is None:
+            consulta = "INSERT INTO usuarios (nombre, tipo) VALUES (%s, %s)"
+            parametros = (self._nombre, self._tipo)
+        else:
+            consulta = "UPDATE usuarios SET nombre=%s, tipo=%s WHERE id=%s"
+            parametros = (self._nombre, self.tipo, self._id)
+        return conexion.ejecutar_consulta(consulta, parametros)
+
+    def _str_(self):
+        return f"ID: {self._id} - {self.nombre} ({self._tipo})"
+
+    @classmethod
+    def obtener_por_id(cls, conexion, id_usuario):
+        consulta = "SELECT id, nombre, tipo FROM usuarios WHERE id = %s"
+        resultado = conexion.ejecutar_consulta(consulta, (id_usuario,), fetch=True)
+        if resultado:
+            id, nombre, tipo = resultado[0]
+            return cls(nombre, tipo, id)
+        return None
+
+    @classmethod
+    def obtener_todos(cls, conexion):
+        consulta = "SELECT id, nombre, tipo FROM usuarios"
+        resultados = conexion.ejecutar_consulta(consulta, fetch=True)
+        usuarios = []
+        if resultados:
+            for r in resultados:
+                id, nombre, tipo = r
+                usuarios.append(cls(nombre, tipo, id))
+        return usuarios
+
+
+# -------------------------------
+# 📦 CLASE PRÉSTAMO
+# -------------------------------
+class Prestamo:
+    def _init_(self, id_usuario=None, id_libro=None, fecha_prestamo=None, fecha_devolucion=None, id=None):
+        self.__id = id
+        self.__id_usuario = id_usuario
+        self.__id_libro = id_libro
+        self.__fecha_prestamo = fecha_prestamo or datetime.date.today()
+        self.__fecha_devolucion = fecha_devolucion
+
+    def guardar_en_bd(self, conexion):
+        """Registrar préstamo"""
+        libro = Libro.obtener_por_id(conexion, self.__id_libro)
+        if not libro:
+            print("❌ Libro no encontrado")
+            return False
+        if not libro.disponible:
+            print("❌ Libro no disponible")
+            return False
+
+        usuario = Usuario.obtener_por_id(conexion, self.__id_usuario)
+        if not usuario:
+            print("❌ Usuario no encontrado")
+            return False
+
+        consulta = """INSERT INTO prestamos (id_usuario, id_libro, fecha_prestamo, fecha_devolucion)
+                      VALUES (%s, %s, %s, %s)"""
+        parametros = (self._id_usuario, self.id_libro, self.fecha_prestamo, self._fecha_devolucion)
+        if conexion.ejecutar_consulta(consulta, parametros):
+            conexion.ejecutar_consulta("UPDATE libros SET disponible=FALSE WHERE id=%s", (self.__id_libro,))
+            print("✅ Préstamo registrado exitosamente")
+            return True
+        return False
+
+    def devolver_libro(self, conexion):
+        if self.__fecha_devolucion:
+            print("❌ Ya devuelto")
+            return False
+        if not self.__id:
+            print("❌ Préstamo sin ID válido")
+            return False
+
+        self.__fecha_devolucion = datetime.date.today()
+        if conexion.ejecutar_consulta("UPDATE prestamos SET fecha_devolucion=%s WHERE id=%s",
+                                      (self._fecha_devolucion, self._id)):
+            conexion.ejecutar_consulta("UPDATE libros SET disponible=TRUE WHERE id=%s", (self.__id_libro,))
+            print("✅ Libro devuelto")
+            return True
+        return False
+
+    def _str_(self):
+        estado = "Devuelto" if self.__fecha_devolucion else "Pendiente"
+        return f"Préstamo ID: {self._id} - Usuario {self.id_usuario}, Libro {self._id_libro} - {estado}"
+
+    @classmethod
+    def obtener_por_id(cls, conexion, id_prestamo):
+        consulta = """SELECT id, id_usuario, id_libro, fecha_prestamo, fecha_devolucion
+                      FROM prestamos WHERE id = %s"""
+        resultado = conexion.ejecutar_consulta(consulta, (id_prestamo,), fetch=True)
+        if resultado:
+            id, id_usuario, id_libro, fecha_prestamo, fecha_devolucion = resultado[0]
+            return cls(id_usuario, id_libro, fecha_prestamo, fecha_devolucion, id)
+        return None
+
+    @classmethod
+    def obtener_todos(cls, conexion):
+        consulta = "SELECT id, id_usuario, id_libro, fecha_prestamo, fecha_devolucion FROM prestamos"
+        resultados = conexion.ejecutar_consulta(consulta, fetch=True)
+        prestamos = []
+        if resultados:
+            for r in resultados:
+                id, id_usuario, id_libro, fecha_prestamo, fecha_devolucion = r
+                prestamos.append(cls(id_usuario, id_libro, fecha_prestamo, fecha_devolucion, id))
+        return prestamos
+
+    @classmethod
+    def obtener_prestamos_activos(cls, conexion):
+        consulta = """SELECT id, id_usuario, id_libro, fecha_prestamo, fecha_devolucion
+                      FROM prestamos WHERE fecha_devolucion IS NULL"""
+        resultados = conexion.ejecutar_consulta(consulta, fetch=True)
+        prestamos = []
+        if resultados:
+            for r in resultados:
+                id, id_usuario, id_libro, fecha_prestamo, fecha_devolucion = r
+                prestamos.append(cls(id_usuario, id_libro, fecha_prestamo, fecha_devolucion, id))
+        return prestamos
+
+
+# -------------------------------
+# ⚙ SISTEMA PRINCIPAL
+# -------------------------------
+class SistemaBiblioteca:
+    def _init_(self):
+        self.conexion_bd = ConexionBD()
+
+    def iniciar(self):
+        if not self.conexion_bd.conectar():
+            print("No se pudo conectar. Saliendo...")
+            return
+        self.menu_principal()
+        self.conexion_bd.desconectar()
+
+    # --- Menús ---
+    def menu_principal(self):
+        while True:
+            print("\n" + "="*50)
+            print("        SISTEMA DE BIBLIOTECA")
+            print("="*50)
+            print("1. Libros")
+            print("2. Usuarios")
+            print("3. Préstamos")
+            print("4. Salir")
+            opcion = input("Seleccione opción: ").strip()
+
+            if opcion == "1":
+                self.menu_libros()
+            elif opcion == "2":
+                self.menu_usuarios()
+            elif opcion == "3":
+                self.menu_prestamos()
+            elif opcion == "4":
+                print("👋 Hasta pronto")
+                break
+            else:
+                print("❌ Opción inválida")
+
+    # --- Submenús y operaciones ---
+    def menu_libros(self):
+        while True:
+            print("\n--- GESTIÓN DE LIBROS ---")
+            print("1. Registrar nuevo")
+            print("2. Listar todos")
+            print("3. Buscar por ID")
+            print("4. Volver")
+            opcion = input("Opción: ").strip()
+            if opcion == "1": self.registrar_libro()
+            elif opcion == "2": self.listar_libros()
+            elif opcion == "3": self.buscar_libro_por_id()
+            elif opcion == "4": break
+
+    def registrar_libro(self):
+        try:
+            titulo = input("Título: ").strip()
+            autor = input("Autor: ").strip()
+            anio = int(input("Año: "))
+            libro = Libro(titulo, autor, anio)
+            if libro.guardar_en_bd(self.conexion_bd):
+                print("✅ Libro registrado")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+
+    def listar_libros(self):
+        libros = Libro.obtener_todos(self.conexion_bd)
+        if not libros: print("No hay libros."); return
+        for l in libros: print(l)
+
+    def buscar_libro_por_id(self):
+        try:
+            id_libro = int(input("ID: "))
+            libro = Libro.obtener_por_id(self.conexion_bd, id_libro)
+            print(libro if libro else "❌ No encontrado")
+        except ValueError:
+            print("ID inválido")
+
+    def menu_usuarios(self):
+        while True:
+            print("\n--- GESTIÓN DE USUARIOS ---")
+            print("1. Registrar nuevo")
+            print("2. Listar todos")
+            print("3. Buscar por ID")
+            print("4. Volver")
+            opcion = input("Opción: ").strip()
+            if opcion == "1": self.registrar_usuario()
+            elif opcion == "2": self.listar_usuarios()
+            elif opcion == "3": self.buscar_usuario_por_id()
+            elif opcion == "4": break
+
+    def registrar_usuario(self):
+        try:
+            nombre = input("Nombre: ").strip()
+            tipo = input("Tipo (Estudiante/Profesor/Administrativo): ").strip()
+            usuario = Usuario(nombre, tipo)
+            if usuario.guardar_en_bd(self.conexion_bd):
+                print("✅ Usuario registrado")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+
+    def listar_usuarios(self):
+        usuarios = Usuario.obtener_todos(self.conexion_bd)
+        if not usuarios: print("No hay usuarios."); return
+        for u in usuarios: print(u)
+
+    def buscar_usuario_por_id(self):
+        try:
+            id_usuario = int(input("ID: "))
+            usuario = Usuario.obtener_por_id(self.conexion_bd, id_usuario)
+            print(usuario if usuario else "❌ No encontrado")
+        except ValueError:
+            print("ID inválido")
+
+    def menu_prestamos(self):
+        while True:
+            print("\n--- GESTIÓN DE PRÉSTAMOS ---")
+            print("1. Registrar préstamo")
+            print("2. Listar todos")
+            print("3. Listar activos")
+            print("4. Devolver libro")
+            print("5. Volver")
+            opcion = input("Opción: ").strip()
+            if opcion == "1": self.registrar_prestamo()
+            elif opcion == "2": self.listar_prestamos()
+            elif opcion == "3": self.listar_prestamos_activos()
+            elif opcion == "4": self.devolver_libro()
+            elif opcion == "5": break
+
+    def registrar_prestamo(self):
+        try:
+            id_usuario = int(input("ID Usuario: "))
+            id_libro = int(input("ID Libro: "))
+            prestamo = Prestamo(id_usuario, id_libro)
+            prestamo.guardar_en_bd(self.conexion_bd)
+        except Exception as e:
+            print(f"❌ Error: {e}")
+
+    def listar_prestamos(self):
+        prestamos = Prestamo.obtener_todos(self.conexion_bd)
+        if not prestamos: print("No hay préstamos."); return
+        for p in prestamos: print(p)
+
+    def listar_prestamos_activos(self):
+        activos = Prestamo.obtener_prestamos_activos(self.conexion_bd)
+        if not activos: print("No hay préstamos activos."); return
+        for p in activos: print(p)
+
+    def devolver_libro(self):
+        try:
+            id_prestamo = int(input("ID del préstamo: "))
+            prestamo = Prestamo.obtener_por_id(self.conexion_bd, id_prestamo)
+            if prestamo:
+                prestamo.devolver_libro(self.conexion_bd)
+            else:
+                print("❌ No encontrado")
+        except ValueError:
+            print("ID inválido")
+
+
+# -------------------------------
+# 🏁 FUNCIÓN PRINCIPAL
+# -------------------------------
+def main():
+    sistema = SistemaBiblioteca()
+    sistema.iniciar()
+
+
+if __name__== "_main_":
+    main()
